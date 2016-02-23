@@ -19,6 +19,10 @@ function getSite(label) {
 	}
     })[0];
 
+    if(!site) {
+	site = sites[0];
+    }
+    
     if (!site.email) {
 	site.email = config.global.email;
     }
@@ -59,8 +63,13 @@ function findFreePorts(num, server) {
 }
 
 function buildDockerImage(site) {
-    site.docker_tag = site.label + "-" + site.freeport + "-" + site.paidport;
-    cmd = "cd " + site.site_dir + " && " + docker_binary + " build --no-cache -t '" + site.docker_tag + "' ./";
+    site.docker_tag = site.label;
+
+    site.content_groups.forEach(function(content_group) {
+	site.docker_tag = site.docker_tag + "-" + content_group.external_port;
+    })
+    
+    cmd = "cd " + site.site_dir + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
     
     console.log("Building Docker image with the following command: \n\t'" + cmd + "'");
     console.log(child_process.execSync(cmd).toString());
@@ -70,8 +79,12 @@ function buildDockerImage(site) {
 
 function startDockerImage(site) {
     //-p 127.0.0.1:8091:80
-    port_switch = "-p 127.0.0.1:" + site.freeport + ":80 ";
-    port_switch = port_switch + "-p 127.0.0.1:" + site.paidport + ":81";
+
+    port_switch = "";
+    site.content_groups.forEach(function(content_group) {
+	port_switch = port_switch + " -p 127.0.0.1:" + content_group.external_port + ":" + content_group.internal_port + " ";
+    })
+
     cmd = docker_binary + " run " + port_switch + " --restart=always -d --name " + site.docker_tag + " " + site.docker_tag;
     
     console.log("Starting Docker container with the following command: \n\t" + cmd);
@@ -79,7 +92,7 @@ function startDockerImage(site) {
 }
 
 function makeApacheConf(site) {
-    function makeVhost(domain, port, email) {
+    function makeVhost(domain, internal_port, external_port, email) {
 	return  "\n<VirtualHost *:80>\n" +
 	    "ServerAdmin " + email + "\n" +
 	    "ServerName " + domain +"\n" +
@@ -87,22 +100,26 @@ function makeApacheConf(site) {
         "ErrorLog ${APACHE_LOG_DIR}/" + domain + "-error.log\n" +
 	    "CustomLog ${APACHE_LOG_DIR}/" + domain + "-access_log common\n" +
 	    
-        "ProxyPass / http://127.0.0.1:" + port + "/\n" +
-	    "ProxyPassReverse / http://127.0.0.1:" + port + "/\n" +
+        "ProxyPass / http://127.0.0.1:" + external_port + "/\n" +
+	    "ProxyPassReverse / http://127.0.0.1:" + external_port + "/\n" +
 	    "</VirtualHost>\n";
     }
 
-    //free domains
-    vhosts = site.free_domains.map(function(d) {
-	return makeVhost(d, site.freeport, site.email);
+    vhosts = site.content_groups.map(function (content_group) {
+	return content_group.domains.map(function(domain) {
+	    return makeVhost(domain, content_group.internal_port, content_group.external_port, content_group.email);
+	}).join("");
     })
+
     conf = vhosts.join("");
 
-    //paid domains
-    vhosts = site.paid_domains.map(function(d) {
-	return makeVhost(d, site.paidport, site.email);
-    });
-    conf = conf + vhosts.join("");
+    // if(site.paid_domains) {
+    // 	//paid domains
+    // 	vhosts = site.paid_domains.map(function(d) {
+    // 	    return makeVhost(d, site.paidport, site.email);
+    // 	});
+    // 	conf = conf + vhosts.join("");
+    // }
 
     return conf;
 }
@@ -129,10 +146,15 @@ function enableSite(site) {
 // 1) interpret the first argument as a "label" and find that site object in ~/.luigi.json
 site = getSite(process.argv[2]);
 
-// 2) query the hosting server/docker daemon and find two free nonprivileged ports, one for the free site, the other for the paid site.
-ports = findFreePorts(2, site.host_server);
-site.freeport = ports[0];
-site.paidport = ports[1];
+
+// 2) for each site, find the number of content groups. find a number of free nonprivileged ports on the target server equal to this number and store them, assigning one to each content group
+
+external_ports = findFreePorts(site.content_groups.length, site.host_server);
+
+site.content_groups = site.content_groups.map(function(content_group) {
+    content_group.external_port = external_ports.pop();
+    return content_group;
+})
 
 // 3) build the site_dir, tagging the image in the form "$label-$freeport-$paidport"
 
@@ -171,6 +193,6 @@ to_kill.forEach(function(x) {
 
 // 8) Clean up unused docker images.
 
-cmd =  "clear_docker_images.sh";
-console.log("Removing unnecessary docker images and containers with the following command:\n\t" + cmd);
-console.log(child_process.execSync(cmd).toString());
+// cmd =  "clear_docker_images.sh";
+// console.log("Removing unnecessary docker images and containers with the following command:\n\t" + cmd);
+// console.log(child_process.execSync(cmd).toString());
