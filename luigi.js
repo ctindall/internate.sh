@@ -5,6 +5,9 @@ var child_process = require("child_process");
 var rando = (new (require("random-js"))());
 
 var docker_binary = "/usr/local/bin/docker-1.6.2";
+var docker_binary = "/usr/bin/docker";
+
+
 
 var config = JSON.parse(fs.readFileSync(process.env.HOME + "/.luigi.json"));
 var sites = config.sites;
@@ -38,7 +41,7 @@ function findFreePorts(num, server) {
     console.log("Finding free ports on " + server + ".");
 
     function isPortFree(port, server) {
-	results = child_process.spawnSync("ssh root@" + server + " 'netstat -tulpn | grep \"\:" + port + "\"'");
+	results = child_process.spawnSync("docker-machine ssh " + server + " 'netstat -tulpn | grep \"\:" + port + "\"'");
 
 	if (results.status === 0) { //$? is 0, so the grep found something, meaning that the port is in use
 	    return false;
@@ -69,7 +72,7 @@ function buildDockerImage(site) {
 	site.docker_tag = site.docker_tag + "-" + content_group.external_port;
     })
     
-    cmd = "cd " + site.site_dir + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.site_dir + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
     
     console.log("Building Docker image with the following command: \n\t'" + cmd + "'");
     console.log(child_process.execSync(cmd).toString());
@@ -85,7 +88,7 @@ function startDockerImage(site) {
 	port_switch = port_switch + " -p 127.0.0.1:" + content_group.external_port + ":" + content_group.internal_port + " ";
     })
 
-    cmd = docker_binary + " run " + port_switch + " --restart=always -d --name " + site.docker_tag + " " + site.docker_tag;
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + docker_binary + " run " + port_switch + " --restart=always -d --name " + site.docker_tag + " " + site.docker_tag;
     
     console.log("Starting Docker container with the following command: \n\t" + cmd);
     console.log(child_process.execSync(cmd).toString());
@@ -129,16 +132,16 @@ function enableSite(site) {
     fs.writeFileSync(tmpfilename, conf);
     console.log("Wrote Apache conf to: " + tmpfilename);
 
-    filename = "root@" + site.host_server + ":/etc/apache2/sites-available/" + site.label + ".conf";
-    cmd = "rsync -avP " + tmpfilename + " " + filename;
+    filename = site.host_server + ":/etc/apache2/sites-available/" + site.label + ".conf";
+    cmd = "docker-machine scp " + tmpfilename + " " + filename;
     console.log("Transferring " + tmpfilename + " to " + filename + " with this command: \n\t" + cmd);
     console.log(child_process.execSync(cmd).toString());
 
-    cmd = "ssh root@" + site.host_server + " a2ensite " + site.label + ".conf";
+    cmd = "docker-machine ssh " + site.host_server + " a2ensite " + site.label + ".conf";
     console.log("Enabling site with this command:\n\t" + cmd);
     console.log(child_process.execSync(cmd).toString());
 
-    cmd = "ssh root@" + site.host_server + " service apache2 reload";
+    cmd = "docker-machine ssh " + site.host_server + " service apache2 reload";
     console.log("Reloading Apache on " + site.host_server + "with the following command:\n\t" + cmd);
     console.log(child_process.execSync(cmd).toString());
 }
@@ -174,7 +177,7 @@ enableSite(site);
 
 // 7) Finally, find other running docker containers whose label is of the form /$label\-[0-9]+\-[0-9]+/ (aka "hot-stock-tips-4038-3994") and stop them.
 
-cmd = docker_binary + " ps | awk '{print $NF}' | sed '1d'";
+cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " ps | awk '{print $NF}' | sed '1d'";
 to_kill = child_process.execSync(cmd).toString()
     .split("\n")
     .filter(function(x) {
@@ -186,7 +189,7 @@ to_kill = child_process.execSync(cmd).toString()
     });
 
 to_kill.forEach(function(x) {
-    cmd = docker_binary + " stop " + x;
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " stop " + x;
     console.log("Stopping container " + x + " on " + site.host_server + " with this command:\n\t" + cmd );
     console.log(child_process.execSync(cmd).toString());
 });
