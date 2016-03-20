@@ -1,0 +1,13 @@
+{
+  "name": "luigi.js",
+  "version": "1.0.0",
+  "description": "",
+  "main": "luigi.js",
+  "dependencies": {},
+  "devDependencies": {},
+  "scripts": {
+    "test": "/bin/true"
+  },
+  "author": "",
+  "license": "ISC",
+}

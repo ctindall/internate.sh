@@ -1,13 +1,11 @@
 #!/usr/bin/node
 
-var fs = require("fs");
 var child_process = require("child_process");
+var fs = require("fs");
+var requestsync = require("request-sync");
 var rando = (new (require("random-js"))());
 
-var docker_binary = "/usr/local/bin/docker-1.6.2";
 var docker_binary = "/usr/bin/docker";
-
-
 
 var config = JSON.parse(fs.readFileSync(process.env.HOME + "/.luigi.json"));
 var sites = config.sites;
@@ -34,7 +32,45 @@ function getSite(label) {
 	site.host_server = config.global.host_server;
     }
 
+    cmd = "docker-machine ip '"  + site.host_server + "'";
+    console.log("Fetching IP address for '" + site.host_server + "' with the following command: \n\t" + cmd);
+    site.ip = child_process.execSync(cmd).toString().replace(/\n$/, "");
+		
     return site;
+}
+
+function setDNS(domain, ip) {
+    var options = {
+	url: "https://api.digitalocean.com/v2/domains/" + domain + "/records",
+	method: "GET",
+	headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token } 
+    }
+    console.log("Ascertaining current state of domain by sending the following request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));    
+    var response = JSON.parse(requestsync(options).body);
+
+    response.domain_records.filter(function(record) { // get just the A records for the "@" domain
+	if (record.type === "A" && record.name === "@") {
+	    return true;
+	} else {
+	    return false;
+	}
+    }).forEach(function(record) {
+	var options = {
+	    url: "https://api.digitalocean.com/v2/domains/" + domain + "/records/" + record.id,
+	    method: "PUT",
+	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
+	    qs: {
+		type: "A",
+		name: "@",
+		data: site.ip
+	    }
+	};
+
+	console.log("Setting DNS for " + domain + " to '"  + site.ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
+	console.log(requestsync(options));
+    });
+    
+    console.log(response);
 }
 
 function findFreePorts(num, server) {
@@ -88,7 +124,7 @@ function startDockerImage(site) {
 	port_switch = port_switch + " -p 127.0.0.1:" + content_group.external_port + ":" + content_group.internal_port + " ";
     })
 
-    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + docker_binary + " run " + port_switch + " --restart=always -d --name " + site.docker_tag + " " + site.docker_tag;
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.site_dir + " && "+ docker_binary + " run " + port_switch + " --restart=always -d --name " + site.docker_tag + " " + site.docker_tag;
     
     console.log("Starting Docker container with the following command: \n\t" + cmd);
     console.log(child_process.execSync(cmd).toString());
@@ -174,6 +210,14 @@ site.conf = makeApacheConf(site);
 // 6) After generating the conf, move it to /etc/apache2/sites-available/$label.conf on the hosting server, enable it (a2enable), and reload the apache config ("service apache2 reload")
 
 enableSite(site);
+
+//6.5) set the DNS for each domain to the proper IP via the DO API:
+
+site.content_groups.forEach(function(content_group) {
+    content_group.domains.forEach(function(domain) {
+	setDNS(domain, site.ip);
+    });
+});
 
 // 7) Finally, find other running docker containers whose label is of the form /$label\-[0-9]+\-[0-9]+/ (aka "hot-stock-tips-4038-3994") and stop them.
 
