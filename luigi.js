@@ -129,8 +129,12 @@ function buildDockerImage(site) {
     site.content_groups.forEach(function(content_group) {
 	site.docker_tag = site.docker_tag + "-" + content_group.external_port;
     })
+
+    if(!site.build_command) {
+	site.build_command = "/bin/true";
+    }
     
-    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + site.build_command + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
     
     console.log("Building Docker image with the following command: \n\t'" + cmd + "'");
     console.log(child_process.execSync(cmd).toString());
