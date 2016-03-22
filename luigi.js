@@ -40,6 +40,15 @@ function getSite(label) {
 }
 
 function setDNS(domain, ip) {
+
+    var name = "@"; 
+
+    if(domain.match(/\./g).length > 1) {
+	//this is a subdomain
+	name = domain + ".";
+	domain  = domain.match(/[a-zA-Z-]*\.[a-zA-Z]*$/)[0];
+    }
+
     var options = {
 	url: "https://api.digitalocean.com/v2/domains/" + domain + "/records",
 	method: "GET",
@@ -48,12 +57,16 @@ function setDNS(domain, ip) {
     console.log("Ascertaining current state of domain by sending the following request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));    
     var response = JSON.parse(requestsync(options).body);
 
-    response.domain_records.filter(function(record) { // get just the A records for the "@" domain
-	if (record.type === "A" && record.name === "@") {
-	    return true;
-	} else {
+    response.domain_records.filter(function(record) { // get just the A records for "@" or the relevant subdomain
+	if (record.type !== "A") {
 	    return false;
 	}
+
+	if(record.name !== name && !name.includes(record.name)) {
+	    return false;
+	} 
+
+	return true;
     }).forEach(function(record) {
 	var options = {
 	    url: "https://api.digitalocean.com/v2/domains/" + domain + "/records/" + record.id,
@@ -61,7 +74,7 @@ function setDNS(domain, ip) {
 	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
 	    qs: {
 		type: "A",
-		name: "@",
+		name: name,
 		data: site.ip
 	    }
 	};
