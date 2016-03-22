@@ -114,6 +114,15 @@ function findFreePorts(num, server) {
     return ports;
 }
 
+function createWorkingDirectory(site) {
+    tmpdir = child_process.execSync("mktemp -d").toString().replace(/\n$/, "") + "/work";
+    cmd = "cp -r '" + site.site_dir + "' " + tmpdir;
+    console.log("Copying files to work directory " + tmpdir + " with the following command: \n\t'" + cmd + "'");
+    console.log(child_process.execSync(cmd).toString());
+
+    return tmpdir;
+}
+
 function buildDockerImage(site) {
     site.docker_tag = site.label;
 
@@ -121,7 +130,7 @@ function buildDockerImage(site) {
 	site.docker_tag = site.docker_tag + "-" + content_group.external_port;
     })
     
-    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.site_dir + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
     
     console.log("Building Docker image with the following command: \n\t'" + cmd + "'");
     console.log(child_process.execSync(cmd).toString());
@@ -130,8 +139,6 @@ function buildDockerImage(site) {
 }
 
 function startDockerImage(site) {
-    //-p 127.0.0.1:8091:80
-
     port_switch = "";
     site.content_groups.forEach(function(content_group) {
 	port_switch = port_switch + " -p 127.0.0.1:" + content_group.external_port + ":" + content_group.internal_port + " ";
@@ -208,6 +215,11 @@ site.content_groups = site.content_groups.map(function(content_group) {
     return content_group;
 })
 
+// 2.5) create a temporary working directory:
+
+site.work_dir = createWorkingDirectory(site);
+
+
 // 3) build the site_dir, tagging the image in the form "$label-$freeport-$paidport"
 
 buildDockerImage(site);
@@ -250,6 +262,9 @@ to_kill.forEach(function(x) {
     console.log("Stopping container " + x + " on " + site.host_server + " with this command:\n\t" + cmd );
     console.log(child_process.execSync(cmd).toString());
 });
+
+// 7.5) clean up tmpdir
+
 
 // 8) Clean up unused docker images.
 
