@@ -269,6 +269,9 @@ to_kill.forEach(function(x) {
 
 // 7.5) clean up tmpdir
 
+cmd = "rm -rfv '" + site.work_dir + "'";
+console.log("Cleaning up tmpdir with this command: \n\t" + cmd);
+console.log(child_process.execSync(cmd).toString());
 
 // 8) Clean up unused docker images.
 
