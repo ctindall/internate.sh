@@ -32,9 +32,7 @@ function getSite(label) {
 	site.host_server = config.global.host_server;
     }
 
-    cmd = "docker-machine ip '"  + site.host_server + "'";
-    console.log("Fetching IP address for '" + site.host_server + "' with the following command: \n\t" + cmd);
-    site.ip = child_process.execSync(cmd).toString().replace(/\n$/, "");
+    site.ip = shellOut("docker-machine ip '"  + site.host_server + "'","Fetching IP address for server '" + site.host_server + "'").replace(/\n$/, "");
 		
     return site;
 }
@@ -115,10 +113,8 @@ function findFreePorts(num, server) {
 }
 
 function createWorkingDirectory(site) {
-    tmpdir = child_process.execSync("mktemp -d").toString().replace(/\n$/, "") + "/work";
-    cmd = "cp -r '" + site.site_dir + "' " + tmpdir;
-    console.log("Copying files to work directory " + tmpdir + " with the following command: \n\t'" + cmd + "'");
-    console.log(child_process.execSync(cmd).toString());
+    tmpdir = shellOut("mktemp -d", "Creating tmpdir").replace(/\n$/, "") + "/work";
+    shellOut("cp -r '" + site.site_dir + "' " + tmpdir, "Copying files to work directory " + tmpdir);
 
     return tmpdir;
 }
@@ -136,8 +132,7 @@ function buildDockerImage(site) {
     
     cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + site.build_command + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
     
-    console.log("Building Docker image with the following command: \n\t'" + cmd + "'");
-    console.log(child_process.execSync(cmd).toString());
+    shellOut(cmd, "Building Docker image");
 
     //TODO throw error if build fails
 }
@@ -150,8 +145,7 @@ function startDockerImage(site) {
 
     cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.site_dir + " && "+ docker_binary + " run " + port_switch + " --restart=always -d --name " + site.docker_tag + " " + site.docker_tag;
     
-    console.log("Starting Docker container with the following command: \n\t" + cmd);
-    console.log(child_process.execSync(cmd).toString());
+    shellOut(cmd, "Starting Docker container");
 }
 
 function makeApacheConf(site) {
@@ -193,18 +187,34 @@ function enableSite(site) {
     console.log("Wrote Apache conf to: " + tmpfilename);
 
     filename = site.host_server + ":/etc/apache2/sites-available/" + site.label + ".conf";
-    cmd = "docker-machine scp " + tmpfilename + " " + filename;
-    console.log("Transferring " + tmpfilename + " to " + filename + " with this command: \n\t" + cmd);
-    console.log(child_process.execSync(cmd).toString());
+   
+    shellOut("docker-machine scp " + tmpfilename + " " + filename,
+	     "Transferring " + tmpfilename + " to " + filename);
 
-    cmd = "docker-machine ssh " + site.host_server + " a2ensite " + site.label + ".conf";
-    console.log("Enabling site with this command:\n\t" + cmd);
-    console.log(child_process.execSync(cmd).toString());
+    shellOut("docker-machine ssh " + site.host_server + " a2ensite " + site.label + ".conf",
+	     "Enabling site");
 
-    cmd = "docker-machine ssh " + site.host_server + " service apache2 reload";
-    console.log("Reloading Apache on " + site.host_server + "with the following command:\n\t" + cmd);
-    console.log(child_process.execSync(cmd).toString());
+    shellOut("docker-machine ssh " + site.host_server + " service apache2 reload",
+	     "Reloading Apache on " + site.host_server);
 }
+
+function shellOut(cmd, msg) {
+    if(msg) {
+	console.log(msg + " by executing this command:\n====>" + cmd);
+    } else {
+	console.log("Executing the following command:\n====>" + cmd);
+    }
+
+    output = child_process.execSync(cmd).toString();
+
+    console.log(output + "\n\n");
+    return output;
+}
+
+
+// 0) open a lockfile
+
+//cmd = "echo '" + prcess.pid +"' > /tmp/";
 
 // 1) interpret the first argument as a "label" and find that site object in ~/.luigi.json
 site = getSite(process.argv[2]);
@@ -251,7 +261,7 @@ site.content_groups.forEach(function(content_group) {
 // 7) Finally, find other running docker containers whose label is of the form /$label\-[0-9]+\-[0-9]+/ (aka "hot-stock-tips-4038-3994") and stop them.
 
 cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " ps | awk '{print $NF}' | sed '1d'";
-to_kill = child_process.execSync(cmd).toString()
+to_kill = shellOut(cmd)
     .split("\n")
     .filter(function(x) {
 	if(x.includes(site.label) && x != site.docker_tag) {
@@ -262,16 +272,13 @@ to_kill = child_process.execSync(cmd).toString()
     });
 
 to_kill.forEach(function(x) {
-    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " stop " + x;
-    console.log("Stopping container " + x + " on " + site.host_server + " with this command:\n\t" + cmd );
-    console.log(child_process.execSync(cmd).toString());
+    shellOut('eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " stop " + x,
+	     "Stopping container " + x + " on " + site.host_server );
 });
 
 // 7.5) clean up tmpdir
 
-cmd = "rm -rfv '" + site.work_dir + "'";
-console.log("Cleaning up tmpdir with this command: \n\t" + cmd);
-console.log(child_process.execSync(cmd).toString());
+shellOut("rm -rfv '" + site.work_dir + "'", "Cleaning up tmpdir");
 
 // 8) Clean up unused docker images.
 
