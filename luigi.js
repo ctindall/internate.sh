@@ -211,10 +211,28 @@ function shellOut(cmd, msg) {
     return output;
 }
 
+function isLocked() {
+    return fs.existsSync("/tmp/luigi.lck");
+}
 
-// 0) open a lockfile
+function waitForLock() {
+    while(isLocked()) {
+	console.log("Waiting 5 seconds for lock...");
+	shellOut("sleep 5");
+    }
+}
 
-//cmd = "echo '" + prcess.pid +"' > /tmp/";
+function createLock() {
+    shellOut("echo '" + process.pid + "' > /tmp/luigi.lck");    
+}
+
+function removeLock() {
+    shellOut("rm -fv /tmp/luigi.lck");
+}
+
+waitForLock();
+createLock();
+
 
 // 1) interpret the first argument as a "label" and find that site object in ~/.luigi.json
 site = getSite(process.argv[2]);
@@ -276,12 +294,12 @@ to_kill.forEach(function(x) {
 	     "Stopping container " + x + " on " + site.host_server );
 });
 
-// 7.5) clean up tmpdir
+// 7.5) clean up tmpdir and remove lockfile
 
-shellOut("rm -rfv '" + site.work_dir + "'", "Cleaning up tmpdir");
+shellOut("rm -rf '" + site.work_dir + "'", "Cleaning up tmpdir");
+
+removeLock();
 
 // 8) Clean up unused docker images.
 
-// cmd =  "clear_docker_images.sh";
-// console.log("Removing unnecessary docker images and containers with the following command:\n\t" + cmd);
-// console.log(child_process.execSync(cmd).toString());
+shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers");
