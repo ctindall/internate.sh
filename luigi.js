@@ -47,6 +47,36 @@ function setDNS(domain, ip) {
 	domain  = domain.match(/[a-zA-Z-]*\.[a-zA-Z]*$/)[0];
     }
 
+    //get all domains, so we can find out if this one even exists
+    var options = {
+	url: "https://api.digitalocean.com/v2/domains",
+	method: "GET",
+	headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token }
+    }
+
+    domains = JSON.parse(requestsync(options).body).domains.filter(function(d) {
+	console.log(d.name);
+	if(d.name === domain) {
+	    return true;
+	} else {
+	    return false;
+	}
+    });
+    
+    if (domains.length < 1) { //domain doesn't exist, so we have to create it
+	var options = {
+	    url: "https://api.digitalocean.com/v2/domains",
+	    method: "POST",
+	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
+	    qs: {
+		name: domain,
+		ip_address: site.ip
+	    }
+	}
+    }
+    
+    
+    //get all records for the domain
     var options = {
 	url: "https://api.digitalocean.com/v2/domains/" + domain + "/records",
 	method: "GET",
@@ -54,8 +84,9 @@ function setDNS(domain, ip) {
     }
     console.log("Ascertaining current state of domain by sending the following request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));    
     var response = JSON.parse(requestsync(options).body);
+    console.log(response);
 
-    response.domain_records.filter(function(record) { // get just the A records for "@" or the relevant subdomain
+    records = response.domain_records.filter(function(record) { // get just the A records for "@" or the relevant subdomain
 	if (record.type !== "A") {
 	    return false;
 	}
@@ -65,21 +96,37 @@ function setDNS(domain, ip) {
 	} 
 
 	return true;
-    }).forEach(function(record) {
-	var options = {
-	    url: "https://api.digitalocean.com/v2/domains/" + domain + "/records/" + record.id,
-	    method: "PUT",
+    })
+
+    if(records.length > 0 ) { //there is already an A record, so let's update it
+	    records.forEach(function(record) {
+		var options = {
+		    url: "https://api.digitalocean.com/v2/domains/" + domain + "/records/" + record.id,
+		    method: "PUT",
+		    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
+		    qs: {
+			type: "A",
+			name: name,
+			data: site.ip
+		    }
+		};
+
+		console.log("Setting DNS for " + domain + " to '"  + site.ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
+		console.log(requestsync(options));
+	    });
+    } else { // there is no A record, so we have to create a new one
+	console.log("Creating new record for '" + name + "' in the zone '" + domain + "'");
+	console.log(requestsync({
+	    url: "https://api.digitalocean.com/v2/domains/" + domain + "/records",
+	    method: "POST",
 	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
 	    qs: {
 		type: "A",
 		name: name,
 		data: site.ip
 	    }
-	};
-
-	console.log("Setting DNS for " + domain + " to '"  + site.ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
-	console.log(requestsync(options));
-    });
+	}));
+    }
     
     console.log(response);
 }
