@@ -13,6 +13,10 @@ var sites = config.sites;
 //TODO: throw error if there are two sites with the same lable
 //TODO: throw error if any of the sites are missing require elements
 
+function log(msg) {
+    file.appendFileSync("/home/cam/luigi.log", (new Date()).toISOString() + "|" + process.pid + "|" + msg);
+}
+
 function getSite(label) {
     site = sites.filter(function(s) {
 	if(label === s.label) {
