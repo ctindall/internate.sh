@@ -14,7 +14,9 @@ var sites = config.sites;
 //TODO: throw error if any of the sites are missing require elements
 
 function log(msg) {
-    file.appendFileSync("/home/cam/luigi.log", (new Date()).toISOString() + "|" + process.pid + "|" + msg);
+    msg = (new Date()).toISOString() + "|" + process.pid + "|" + msg;
+    fs.appendFileSync("/home/cam/luigi.log", msg);
+    console.log(msg);
 }
 
 function getSite(label) {
@@ -59,7 +61,7 @@ function setDNS(domain, ip) {
     }
 
     domains = JSON.parse(requestsync(options).body).domains.filter(function(d) {
-	console.log(d.name);
+	log(d.name);
 	if(d.name === domain) {
 	    return true;
 	} else {
@@ -86,9 +88,9 @@ function setDNS(domain, ip) {
 	method: "GET",
 	headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token } 
     }
-    console.log("Ascertaining current state of domain by sending the following request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));    
+    log("Ascertaining current state of domain by sending the following request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));    
     var response = JSON.parse(requestsync(options).body);
-    console.log(response);
+    log(JSON.stringify(response));
 
     records = response.domain_records.filter(function(record) { // get just the A records for "@" or the relevant subdomain
 	if (record.type !== "A") {
@@ -115,12 +117,12 @@ function setDNS(domain, ip) {
 		    }
 		};
 
-		console.log("Setting DNS for " + domain + " to '"  + site.ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
-		console.log(requestsync(options));
+		log("Setting DNS for " + domain + " to '"  + site.ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
+		log(JSON.stringify(requestsync(options)));
 	    });
     } else { // there is no A record, so we have to create a new one
-	console.log("Creating new record for '" + name + "' in the zone '" + domain + "'");
-	console.log(requestsync({
+	log("Creating new record for '" + name + "' in the zone '" + domain + "'");
+	log(JSON.stringify(requestsync({
 	    url: "https://api.digitalocean.com/v2/domains/" + domain + "/records",
 	    method: "POST",
 	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
@@ -129,14 +131,14 @@ function setDNS(domain, ip) {
 		name: name,
 		data: site.ip
 	    }
-	}));
+	})));
     }
     
-    console.log(response);
+    log(JSON.stringify(response));
 }
 
 function findFreePorts(num, server) {
-    console.log("Finding free ports on " + server + ".");
+    log("Finding free ports on " + server + ".");
 
     function isPortFree(port, server) {
 	results = child_process.spawnSync("docker-machine ssh " + server + " 'netstat -tulpn | grep \"\:" + port + "\"'");
@@ -158,7 +160,7 @@ function findFreePorts(num, server) {
 	}
     }
 
-    console.log("Found " + ports);
+    log("Found " + ports);
     
     return ports;
 }
@@ -235,7 +237,7 @@ function makeApacheConf(site) {
 function enableSite(site) {
     tmpfilename = "/tmp/" + process.pid + "-" + site.label + ".conf";
     fs.writeFileSync(tmpfilename, conf);
-    console.log("Wrote Apache conf to: " + tmpfilename);
+    log("Wrote Apache conf to: " + tmpfilename);
 
     filename = site.host_server + ":/etc/apache2/sites-available/" + site.label + ".conf";
    
@@ -251,14 +253,14 @@ function enableSite(site) {
 
 function shellOut(cmd, msg) {
     if(msg) {
-	console.log(msg + " by executing this command:\n====>" + cmd);
+	log(msg + " by executing this command:\n====>" + cmd);
     } else {
-	console.log("Executing the following command:\n====>" + cmd);
+	log("Executing the following command:\n====>" + cmd);
     }
 
     output = child_process.execSync(cmd).toString();
 
-    console.log(output + "\n\n");
+    log(output + "\n\n");
     return output;
 }
 
@@ -268,7 +270,7 @@ function isLocked() {
 
 function waitForLock() {
     while(isLocked()) {
-	console.log("Waiting 5 seconds for lock...");
+	log("Waiting 5 seconds for lock...");
 	shellOut("sleep 5");
     }
 }
