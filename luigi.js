@@ -19,6 +19,40 @@ function log(msg) {
     console.log(msg);
 }
 
+function scheduleKill(server, label, time) {
+    var cmd = 'eval $(docker-machine env --shell bash "' + server + '") && ' + docker_binary + " ps | awk '{print $NF}' | sed '1d'";
+    var to_kill = shellOut(cmd)
+	.split("\n")
+	.filter(function(x) {
+	    if(x.includes(site.label) && x != site.docker_tag) {
+		return true;
+	    } else {
+		return false;
+	    }
+	});
+    
+    to_kill.forEach(function(x) {
+	shellOut("docker-machine ssh " + server + " 'echo \"docker stop " + label + "\" | at \"" + time +"\"'",
+		 "Scheduling the destruction of the old container on " + server + " at '" + time + "'");
+    });
+}
+
+function editSiteParameter(site, parameter, value) {
+    site[parameter] = value;
+
+    sites = sites.map(function(s) {
+	if (site.label == s.label) {
+	    return site;
+	} else {
+	    return s;
+	}
+    });
+
+    config.sites = sites;
+
+    fs.writeFileSync(process.env.HOME + "/.luigi.json", JSON.stringify(config, null, "\t"));
+}
+
 function getSite(label) {
     site = sites.filter(function(s) {
 	if(label === s.label) {
@@ -323,12 +357,7 @@ function removeLock() {
     shellOut("rm -fv /tmp/luigi.lck");
 }
 
-waitForLock();
-createLock();
-cmd = process.argv[2];
-site = getSite(process.argv[3]);
-
-if ( cmd === "build" ) {
+function buildSite(site) {
     // for each site, find the number of content groups. find a number of free nonprivileged ports on the target server equal to this number and store them, assigning one to each content group
     
     external_ports = findFreePorts(site.content_groups.length, site.host_server);
@@ -374,6 +403,24 @@ if ( cmd === "build" ) {
     shellOut("rm -rf '" + site.work_dir + "'", "Cleaning up tmpdir");
 }
 
+waitForLock();
+createLock();
+cmd = process.argv[2];
+site = getSite(process.argv[3]);
+
+if ( cmd === "build" ) {
+    buildSite(site);
+} else if ( cmd === "move" ) {
+    new_server = process.argv[4];
+    old_server = site.host_server;
+    
+    editSiteParameter(site, "host_server",  new_server);
+    buildSite(site);
+    scheduleKill(old_server, site.label, "now + 2 hours");
+    shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers from the old server '" + old_server+ "'");
+} else {
+    log("Command '" + cmd + "' not recognized. Bailing.");
+}
 
 removeLock();
 shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers");
