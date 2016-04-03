@@ -325,74 +325,55 @@ function removeLock() {
 
 waitForLock();
 createLock();
+cmd = process.argv[2];
+site = getSite(process.argv[3]);
 
-
-// 1) interpret the first argument as a "label" and find that site object in ~/.luigi.json
-site = getSite(process.argv[2]);
-
-
-// 2) for each site, find the number of content groups. find a number of free nonprivileged ports on the target server equal to this number and store them, assigning one to each content group
-
-external_ports = findFreePorts(site.content_groups.length, site.host_server);
-
-site.content_groups = site.content_groups.map(function(content_group) {
-    content_group.external_port = external_ports.pop();
-    return content_group;
-})
-
-// 2.5) create a temporary working directory:
-
-site.work_dir = createWorkingDirectory(site);
-
-
-// 3) build the site_dir, tagging the image in the form "$label-$freeport-$paidport"
-
-buildDockerImage(site);
+if ( cmd === "build" ) {
+    // for each site, find the number of content groups. find a number of free nonprivileged ports on the target server equal to this number and store them, assigning one to each content group
     
-// 4) start the docker image, mapping internal port 80 to $freeport, and internal port 81 to $paidport
+    external_ports = findFreePorts(site.content_groups.length, site.host_server);
 
-startDockerImage(site);
+    site.content_groups = site.content_groups.map(function(content_group) {
+	content_group.external_port = external_ports.pop();
+	return content_group;
+    })
+    
+    site.work_dir = createWorkingDirectory(site);
 
-// 5) generate an httpd.conf file for the site
+    buildDockerImage(site);
+    
+    startDockerImage(site);
 
-site.conf = makeApacheConf(site);
+    site.conf = makeApacheConf(site);
 
-// 6) After generating the conf, move it to /etc/apache2/sites-available/$label.conf on the hosting server, enable it (a2enable), and reload the apache config ("service apache2 reload")
+    enableSite(site);
 
-enableSite(site);
-
-//6.5) set the DNS for each domain to the proper IP via the DO API:
-
-site.content_groups.forEach(function(content_group) {
-    content_group.domains.forEach(function(domain) {
-	setDNS(domain, site.ip);
-    });
-});
-
-// 7) Finally, find other running docker containers whose label is of the form /$label\-[0-9]+\-[0-9]+/ (aka "hot-stock-tips-4038-3994") and stop them.
-
-cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " ps | awk '{print $NF}' | sed '1d'";
-to_kill = shellOut(cmd)
-    .split("\n")
-    .filter(function(x) {
-	if(x.includes(site.label) && x != site.docker_tag) {
-	    return true;
-	} else {
-	    return false;
-	}
+    site.content_groups.forEach(function(content_group) {
+	content_group.domains.forEach(function(domain) {
+	    setDNS(domain, site.ip);
+	});
     });
 
-to_kill.forEach(function(x) {
-    shellOut('eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " stop " + x,
-	     "Stopping container " + x + " on " + site.host_server );
-});
+    // find other running docker containers whose label is of the form /$label\-[0-9]+\-[0-9]+/ (aka "hot-stock-tips-4038-3994") and stop them.
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " ps | awk '{print $NF}' | sed '1d'";
+    to_kill = shellOut(cmd)
+	.split("\n")
+	.filter(function(x) {
+	    if(x.includes(site.label) && x != site.docker_tag) {
+		return true;
+	    } else {
+		return false;
+	    }
+	});
+    
+    to_kill.forEach(function(x) {
+	shellOut('eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " stop " + x,
+		 "Stopping container " + x + " on " + site.host_server );
+    });
 
-// 7.5) clean up tmpdir and remove lockfile
+    shellOut("rm -rf '" + site.work_dir + "'", "Cleaning up tmpdir");
+}
 
-shellOut("rm -rf '" + site.work_dir + "'", "Cleaning up tmpdir");
 
 removeLock();
-
-// 8) Clean up unused docker images.
-
 shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers");
