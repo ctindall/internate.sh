@@ -264,8 +264,48 @@ function shellOut(cmd, msg) {
     return output;
 }
 
+function pidRunning(pid) {
+    var filename = "/proc/" + pid;
+
+    console.log(shellOut("bash -c 'if [ -e \"" + filename + "\" ]; then echo true; else echo false; fi'") + "|");
+    
+    if( shellOut("bash -c 'if [ -e \"" + filename + "\" ]; then echo true; else echo false; fi'", "Determining whether PID '" + pid  + "' is currently running").replace(/\n$/, "") == "true") {
+	return true;
+    }
+
+    return false;
+}
+
 function isLocked() {
-    return fs.existsSync("/tmp/luigi.lck");
+    var filename = "/tmp/luigi.lck";
+    var exists = fs.existsSync(filename);
+
+    if (exists) {
+	var lockpid = fs.readFileSync(filename).toString().replace(/\n$/, "");
+	var isme = (process.pid == lockpid);
+	var isrunning = pidRunning(lockpid);
+    }
+
+    log(JSON.stringify({
+	exists: exists,
+	isme: isme,
+	isrunning: isrunning
+    }, null, "\t"))
+    
+    if (!exists) {
+	return false;
+    }
+
+    if (exists && isme) {
+	return false;
+    }
+
+    if (exists && !isme && !isrunning) {
+	removeLock();
+	return false;
+    }
+    
+    return true;
 }
 
 function waitForLock() {
