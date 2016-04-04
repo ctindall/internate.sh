@@ -202,6 +202,7 @@ function findFreePorts(num, server) {
 function createWorkingDirectory(site) {
     tmpdir = shellOut("mktemp -d", "Creating tmpdir").replace(/\n$/, "") + "/work";
     shellOut("cp -r '" + site.site_dir + "' " + tmpdir, "Copying files to work directory " + tmpdir);
+    shellOut("echo '" + process.pid + "' > " + tmpdir + "/pid");
 
     return tmpdir;
 }
