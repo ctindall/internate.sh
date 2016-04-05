@@ -218,7 +218,7 @@ function buildDockerImage(site) {
 	site.build_command = "/bin/true";
     }
     
-    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + site.build_command + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + site.build_command + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./ > ~/docker-build-" + process.pid + ".log";
     
     shellOut(cmd, "Building Docker image");
 
