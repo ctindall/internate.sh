@@ -14,9 +14,9 @@ var sites = config.sites;
 //TODO: throw error if any of the sites are missing require elements
 
 function log(msg) {
+    console.log(msg);
     msg = (new Date()).toISOString() + "|" + process.pid + "|" + msg;
     fs.appendFileSync("/home/cam/luigi.log", msg);
-    console.log(msg);
 }
 
 function scheduleKill(server, label, time) {
@@ -295,7 +295,7 @@ function shellOut(cmd, msg) {
 
     output = child_process.execSync(cmd).toString();
 
-    log(output + "\n\n");
+    log(output.replace(/^/gm, "->"));
     return output;
 }
 
@@ -325,7 +325,7 @@ function isLocked() {
 	exists: exists,
 	isme: isme,
 	isrunning: isrunning
-    }, null, "\t"))
+    }));
     
     if (!exists) {
 	return false;
@@ -419,6 +419,15 @@ if ( cmd === "build" ) {
     buildSite(site);
     scheduleKill(old_server, site.label, "now + 2 hours");
     shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers from the old server '" + old_server+ "'");
+} else if (cmd === "forward-mail") {
+    //create mail.domain.com A record and point it to the IP of the host_server
+    site.content_groups.forEach(function(cg) {
+	cg.domains.forEach(function(domain) {
+	    setDNS("mail." + domain, site.ip);
+	});
+    });
+    //create MX record and point it to mail.domain.com
+    //wave hands and magically do the mail forwarding
 } else {
     log("Command '" + cmd + "' not recognized. Bailing.");
 }
