@@ -371,6 +371,8 @@ function buildSite(site) {
     site.work_dir = createWorkingDirectory(site);
 
     buildDockerImage(site);
+
+    shellOut("rm -rf '" + site.work_dir + "'", "Cleaning up tmpdir");
     
     startDockerImage(site);
 
@@ -400,8 +402,6 @@ function buildSite(site) {
 	shellOut('eval $(docker-machine env --shell bash "' + site.host_server + '") && ' + docker_binary + " stop " + x,
 		 "Stopping container " + x + " on " + site.host_server );
     });
-
-    shellOut("rm -rf '" + site.work_dir + "'", "Cleaning up tmpdir");
 }
 
 waitForLock();
