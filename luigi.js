@@ -53,6 +53,10 @@ function editSiteParameter(site, parameter, value) {
     fs.writeFileSync(process.env.HOME + "/.luigi.json", JSON.stringify(config, null, "\t"));
 }
 
+function getServerIp(server) {
+    return shellOut("docker-machine ip '"  + server + "'","Fetching IP address for server '" + server + "'").replace(/\n$/, "");
+}
+
 function getSite(label) {
     site = sites.filter(function(s) {
 	if(label === s.label) {
@@ -72,7 +76,7 @@ function getSite(label) {
 	site.host_server = config.global.host_server;
     }
 
-    site.ip = shellOut("docker-machine ip '"  + site.host_server + "'","Fetching IP address for server '" + site.host_server + "'").replace(/\n$/, "");
+    site.ip = getServerIp(site.host_server);
 		
     return site;
 }
@@ -110,7 +114,7 @@ function setDNS(domain, ip) {
 	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
 	    qs: {
 		name: domain,
-		ip_address: site.ip
+		ip_address: ip
 	    }
 	}
     }
@@ -147,11 +151,11 @@ function setDNS(domain, ip) {
 		    qs: {
 			type: "A",
 			name: name,
-			data: site.ip
+			data: ip
 		    }
 		};
 
-		log("Setting DNS for " + domain + " to '"  + site.ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
+		log("Setting DNS for " + domain + " to '"  + ip + "' with this request to Digital Ocean:\n" + JSON.stringify(options, null, "\t"));
 		log(JSON.stringify(requestsync(options)));
 	    });
     } else { // there is no A record, so we have to create a new one
@@ -163,7 +167,7 @@ function setDNS(domain, ip) {
 	    qs: {
 		type: "A",
 		name: name,
-		data: site.ip
+		data: ip
 	    }
 	})));
     }
@@ -200,7 +204,7 @@ function findFreePorts(num, server) {
 }
 
 function createWorkingDirectory(site) {
-    tmpdir = shellOut("mktemp -d", "Creating tmpdir").replace(/\n$/, "") + "/work";
+    tmpdir = shellOut("mktemp -p ~/tmp -d", "Creating tmpdir").replace(/\n$/, "") + "/work";
     shellOut("cp -r '" + site.site_dir + "' " + tmpdir, "Copying files to work directory " + tmpdir);
     shellOut("echo '" + process.pid + "' > " + tmpdir + "/pid");
 
@@ -218,7 +222,7 @@ function buildDockerImage(site) {
 	site.build_command = "/bin/true";
     }
     
-    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + site.build_command + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./ > ~/docker-build-" + process.pid + ".log";
+    cmd = 'eval $(docker-machine env --shell bash "' + site.host_server + '")' + " && cd " + site.work_dir + " && " + site.build_command + " && " + docker_binary + " build -t '" + site.docker_tag + "' ./";
     
     shellOut(cmd, "Building Docker image");
 
@@ -404,14 +408,18 @@ function buildSite(site) {
     });
 }
 
+log("invocation arguments: " + JSON.stringify(process.argv))
 waitForLock();
 createLock();
+
 cmd = process.argv[2];
-site = getSite(process.argv[3]);
 
 if ( cmd === "build" ) {
+    site = getSite(process.argv[3]);
     buildSite(site);
+    shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers");
 } else if ( cmd === "move" ) {
+    site = getSite(process.argv[3]);
     new_server = process.argv[4];
     old_server = site.host_server;
     
@@ -420,12 +428,10 @@ if ( cmd === "build" ) {
     scheduleKill(old_server, site.label, "now + 2 hours");
     shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers from the old server '" + old_server+ "'");
 } else if (cmd === "forward-mail") {
-    //create mail.domain.com A record and point it to the IP of the host_server
-    site.content_groups.forEach(function(cg) {
-	cg.domains.forEach(function(domain) {
-	    setDNS("mail." + domain, site.ip);
-	});
-    });
+    domain = process.argv[3];
+    //create mail.domain.com A record and point it to the IP of the mail_server
+    setDNS("mail." + domain, getServerIp(config.mail[domain].mail_server));
+
     //create MX record and point it to mail.domain.com
     //wave hands and magically do the mail forwarding
 } else {
@@ -433,4 +439,4 @@ if ( cmd === "build" ) {
 }
 
 removeLock();
-shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers");
+
