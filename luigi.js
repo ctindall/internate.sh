@@ -81,7 +81,7 @@ function getSite(label) {
     return site;
 }
 
-function setDNS(domain, ip) {
+function setDNS(domain, ip, type) {
 
     var name = "@"; 
 
@@ -131,7 +131,7 @@ function setDNS(domain, ip) {
     log(JSON.stringify(response));
 
     records = response.domain_records.filter(function(record) { // get just the A records for "@" or the relevant subdomain
-	if (record.type !== "A") {
+	if (record.type !== type) {
 	    return false;
 	}
 
@@ -149,7 +149,7 @@ function setDNS(domain, ip) {
 		    method: "PUT",
 		    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
 		    qs: {
-			type: "A",
+			type: type,
 			name: name,
 			data: ip
 		    }
@@ -165,7 +165,7 @@ function setDNS(domain, ip) {
 	    method: "POST",
 	    headers: { "Authorization" : "Bearer " + config.global.digital_ocean_token },
 	    qs: {
-		type: "A",
+		type: type,
 		name: name,
 		data: ip
 	    }
@@ -386,7 +386,7 @@ function buildSite(site) {
 
     site.content_groups.forEach(function(content_group) {
 	content_group.domains.forEach(function(domain) {
-	    setDNS(domain, site.ip);
+	    setDNS(domain, site.ip, "A");
 	});
     });
 
@@ -408,6 +408,31 @@ function buildSite(site) {
     });
 }
 
+function createMailDomainFile(domain) {
+    var mailboxes = config.mail[domain].mailboxes;
+    if(!mailboxes) {
+	mailboxes = [];
+    }
+    var server = config.mail[domain].mail_server;
+
+    var dir = process.env.HOME + "/.luigi/mail/" + server + "/domains/" 
+    var filename = dir + domain;
+
+    shellOut("mkdir -p " + dir);
+    
+    fs.writeFileSync( filename,
+ 		      mailboxes.map(function(mailbox) {
+			  return mailbox.local_part + ": \n";
+		      }).join(""));
+
+    return filename;
+}
+
+function uploadFile(local_filename, server, remote_directory) {
+    shellOut("docker-machine ssh " + server + " mkdir -p " + remote_directory);
+    shellOut("docker-machine scp " + local_filename + " " + server + ":" + remote_directory + "/");
+}
+
 log("invocation arguments: " + JSON.stringify(process.argv))
 waitForLock();
 createLock();
@@ -427,13 +452,18 @@ if ( cmd === "build" ) {
     buildSite(site);
     scheduleKill(old_server, site.label, "now + 2 hours");
     shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers from the old server '" + old_server+ "'");
-} else if (cmd === "forward-mail") {
+} else if (cmd === "create-mailboxes") {
     domain = process.argv[3];
-    //create mail.domain.com A record and point it to the IP of the mail_server
-    setDNS("mail." + domain, getServerIp(config.mail[domain].mail_server));
+    server = config.mail[domain].mail_server;
 
-    //create MX record and point it to mail.domain.com
-    //wave hands and magically do the mail forwarding
+    //set MX records to point to mail server
+    setDNS(domain, server + ".", "MX");
+    
+    //create domain file and upload to server
+    var domain_file = createMailDomainFile(domain);
+    console.log(fs.readFileSync(domain_file).toString());
+    uploadFile(domain_file, server, "/etc/mail/domains/");
+    
 } else {
     log("Command '" + cmd + "' not recognized. Bailing.");
 }
