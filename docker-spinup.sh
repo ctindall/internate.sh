@@ -3,7 +3,7 @@
 docker-spinup () {
  docker-machine create \
     --driver digitalocean \
-    --digitalocean-access-token="4fc7ea67bc54eaa5944741bd971cf4fa71425b632b6a08e080a4d2f64705b099" \
+    --digitalocean-access-token="$(jq .global.digital_ocean_token ~/.luigi.json | sed 's/\"//g')" \
     --digitalocean-size 1gb \
     $1
 }

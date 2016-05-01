@@ -81,7 +81,7 @@ function getSite(label) {
     return site;
 }
 
-function setDNS(domain, ip, type) {
+function setDNS(domain, ip, type, priority) {
 
     var name = "@"; 
 
@@ -151,7 +151,8 @@ function setDNS(domain, ip, type) {
 		    qs: {
 			type: type,
 			name: name,
-			data: ip
+			data: ip,
+			priority: priority
 		    }
 		};
 
@@ -167,7 +168,8 @@ function setDNS(domain, ip, type) {
 	    qs: {
 		type: type,
 		name: name,
-		data: ip
+		data: ip,
+		priority: priority
 	    }
 	})));
     }
@@ -428,6 +430,27 @@ function createMailDomainFile(domain) {
     return filename;
 }
 
+function createMailPasswdFile() {
+    var mailboxes = config.mail[domain].mailboxes;
+    if(!mailboxes) {
+	mailboxes = [];
+    }
+
+    var dir = process.env.HOME + "/.luigi/mail/" + server + "/auth/" + domain + "/";
+    var filename = dir + "passwd";
+
+    shellOut("mkdir -p " + dir);
+
+    fs.writeFileSync( filename,
+		      mailboxes.map(function(mailbox) {
+			  return mailbox.local_part + ":{" + mailbox.pass_scheme + "}" + mailbox.pass + "::::::\n";
+		      })
+		      .join("")
+		    );
+
+    return filename;
+}
+
 function uploadFile(local_filename, server, remote_directory) {
     shellOut("docker-machine ssh " + server + " mkdir -p " + remote_directory);
     shellOut("docker-machine scp " + local_filename + " " + server + ":" + remote_directory + "/");
@@ -444,6 +467,7 @@ if ( cmd === "build" ) {
     buildSite(site);
     shellOut("clear_docker_images.sh '" + site.host_server + "'", "Removing unnecessary docker images and containers");
 } else if ( cmd === "move" ) {
+    //luigi.js move $label $new_server
     site = getSite(process.argv[3]);
     new_server = process.argv[4];
     old_server = site.host_server;
@@ -456,17 +480,24 @@ if ( cmd === "build" ) {
     domain = process.argv[3];
     server = config.mail[domain].mail_server;
 
+    //make sure A records point to the correct IP
+    setDNS(server, getServerIp(server), "A");
+    
     //set MX records to point to mail server
-    setDNS(domain, server + ".", "MX");
+    setDNS(domain, server + ".", "MX", 0);
     
     //create domain file and upload to server
     var domain_file = createMailDomainFile(domain);
-    console.log(fs.readFileSync(domain_file).toString());
+    log("created domain file: " + domain_file);
     uploadFile(domain_file, server, "/etc/mail/domains/");
+
+    //create passwd file and upload to server
+    var passwd_file = createMailPasswdFile(domain);
+    log("created passwd file: " + passwd_file);
+    uploadFile(passwd_file, server, "/etc/mail/auth/" + domain );
     
 } else {
     log("Command '" + cmd + "' not recognized. Bailing.");
 }
 
 removeLock();
-
